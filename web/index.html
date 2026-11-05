@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f3f6f4" />
+    <title>端口台账 · 本机</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="端口台账首页">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>端口台账</span>
+        </a>
+        <div class="local-status" id="service-status" aria-live="polite">
+          <span class="status-dot"></span><span>正在连接本机服务</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="intro" aria-labelledby="page-title">
+          <div>
+            <p class="eyebrow">本机 · TCP/IP 端口目录</p>
+            <h1 id="page-title">端口，一处登记。</h1>
+            <p class="intro-copy">为每个项目分配固定端口，避免服务互相占用。</p>
+          </div>
+          <button class="button button-primary" id="open-register" type="button">
+            <span class="button-icon" aria-hidden="true">+</span>登记项目
+          </button>
+        </section>
+
+        <section class="summary" aria-label="端口概况">
+          <div class="summary-item">
+            <span class="summary-label">已登记</span>
+            <strong id="metric-registered">—</strong>
+            <span class="summary-unit">个端口</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">当前监听</span>
+            <strong id="metric-listening">—</strong>
+            <span class="summary-unit">个端口</span>
+          </div>
+          <div class="summary-item summary-attention">
+            <span class="summary-label">需处理</span>
+            <strong id="metric-conflicts">—</strong>
+            <span class="summary-unit">需要归属</span>
+          </div>
+          <p class="scope-note"><span aria-hidden="true">i</span> 只观测当前监听，不会停止未知进程</p>
+        </section>
+
+        <div class="workspace">
+          <section class="ports-panel" aria-labelledby="ports-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="ports-title">端口使用情况</h2>
+                <p id="ports-caption">正在读取本机监听与登记信息</p>
+              </div>
+              <button class="icon-button" id="refresh" type="button" aria-label="刷新端口列表" title="刷新">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5.6 9A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.4-3"/></svg>
+              </button>
+            </div>
+            <div class="table-tools">
+              <div class="tabs" role="tablist" aria-label="端口筛选">
+                <button class="tab is-active" role="tab" aria-selected="true" data-filter="all">全部</button>
+                <button class="tab" role="tab" aria-selected="false" data-filter="listening">正在监听</button>
+                <button class="tab" role="tab" aria-selected="false" data-filter="registered">已登记</button>
+                <button class="tab tab-attention" role="tab" aria-selected="false" data-filter="attention">需处理 <span id="attention-count">0</span></button>
+              </div>
+              <label class="search-box">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.5"/><path d="m16 16 4 4"/></svg>
+                <input id="search" type="search" placeholder="搜索端口或项目" autocomplete="off" />
+                <kbd>/</kbd>
+              </label>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th scope="col">端口 / 协议</th><th scope="col">项目归属</th><th scope="col">进程</th><th scope="col">状态</th><th scope="col"><span class="sr-only">操作</span></th></tr>
+                </thead>
+                <tbody id="port-rows"></tbody>
+              </table>
+              <div class="empty-state" id="empty-state" hidden>
+                <span class="empty-symbol" aria-hidden="true">∅</span>
+                <strong>没有匹配的端口</strong>
+                <p>调整筛选条件，或登记一个项目端口。</p>
+              </div>
+              <div class="error-state" id="error-state" hidden role="alert">
+                <strong>无法读取本机端口</strong>
+                <p id="error-message">请确认本机服务已启动。</p>
+                <button class="button button-subtle" id="retry" type="button">重试</button>
+              </div>
+            </div>
+            <footer class="table-footer"><span id="row-count">0 个端口</span><span>监听状态每次刷新时采集</span></footer>
+          </section>
+
+          <aside class="side-panel" aria-labelledby="projects-title">
+            <div class="side-heading">
+              <div><h2 id="projects-title">项目分配</h2><span class="side-count" id="project-count">0</span></div>
+              <button class="text-button" id="side-register" type="button">添加</button>
+            </div>
+            <div class="project-list" id="project-list"></div>
+            <div class="rules">
+              <h3>端口规则</h3>
+              <div class="rule-row"><span class="rule-key rule-green"></span><p><strong>先登记，再启动</strong><br />项目只使用分配给自己的端口。</p></div>
+              <div class="rule-row"><span class="rule-key rule-blue"></span><p><strong>端口专属</strong><br />已登记端口不能被其他项目复用。</p></div>
+              <div class="rule-row"><span class="rule-key rule-red"></span><p><strong>发现未登记监听</strong><br />先确认归属，再登记到对应项目。</p></div>
+            </div>
+          </aside>
+        </div>
+      </main>
+      <footer class="page-footer"><span>本地端口管理</span><span id="last-updated">尚未更新</span></footer>
+    </div>
+
+    <dialog id="register-dialog" class="dialog">
+      <form id="register-form" method="dialog">
+        <div class="dialog-heading"><div><p class="eyebrow">项目端口分配</p><h2>登记项目</h2></div><button class="icon-button dialog-close" type="button" data-close="register-dialog" aria-label="关闭">×</button></div>
+        <label class="field-label" for="project-name">项目名称</label>
+        <input class="text-input" id="project-name" name="name" maxlength="80" placeholder="例如：订单 API" required />
+        <label class="field-label" for="project-ports">端口号</label>
+        <input class="text-input mono" id="project-ports" name="ports" placeholder="例如：8300, 8301" required inputmode="numeric" />
+        <p class="field-help">输入一个或多个端口号，以逗号分隔。已被占用或登记的端口无法分配。</p>
+        <label class="field-label" for="project-path">项目目录</label>
+        <input class="text-input mono" id="project-path" name="path" placeholder="/Users/用户名/项目目录" autocomplete="off" required />
+        <p class="field-help">用于验证已监听进程归属，并确保受管启动使用登记目录。</p>
+        <p class="form-error" id="register-error" role="alert" hidden></p>
+        <div class="dialog-actions"><button class="button button-subtle" type="button" data-close="register-dialog">取消</button><button class="button button-primary" id="submit-register" type="submit">确认登记</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="port-detail-dialog" class="dialog detail-dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">监听信息</p><h2 id="detail-title">端口详情</h2></div><button class="icon-button dialog-close" type="button" data-close="port-detail-dialog" aria-label="关闭">×</button></div>
+      <div id="port-detail-content" class="detail-content"></div>
+      <div class="dialog-actions"><button class="button button-subtle" type="button" data-close="port-detail-dialog">关闭</button></div>
+    </dialog>
+
+    <dialog id="validate-dialog" class="dialog">
+      <form id="validate-form" method="dialog">
+        <div class="dialog-heading"><div><p class="eyebrow">端口使用权</p><h2>检查项目端口</h2></div><button class="icon-button dialog-close" type="button" data-close="validate-dialog" aria-label="关闭">×</button></div>
+        <input type="hidden" id="validate-project-id" />
+        <p class="validate-project" id="validate-project-name"></p>
+        <label class="field-label" for="validate-port">选择已分配端口</label>
+        <select class="text-input mono" id="validate-port" required></select>
+        <div class="validate-result" id="validate-result" aria-live="polite" hidden></div>
+        <p class="form-error" id="validate-error" role="alert" hidden></p>
+        <div class="dialog-actions"><button class="button button-subtle" type="button" data-close="validate-dialog">关闭</button><button class="button button-primary" type="submit">验证使用权</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="confirm-dialog" class="dialog dialog-small">
+      <form id="confirm-form" method="dialog">
+        <div class="dialog-heading"><div><p class="eyebrow">释放端口</p><h2>移除项目登记？</h2></div><button class="icon-button dialog-close" type="button" data-close="confirm-dialog" aria-label="关闭">×</button></div>
+        <p class="confirm-copy" id="confirm-copy"></p>
+        <p class="field-help">此操作只释放台账登记，不会停止项目进程。</p>
+        <div class="dialog-actions"><button class="button button-subtle" type="button" data-close="confirm-dialog">取消</button><button class="button button-danger" id="confirm-remove" type="submit">释放登记</button></div>
+      </form>
+    </dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
