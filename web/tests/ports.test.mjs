@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyPort, filterPorts, localizeApiError, ownershipLabel, parsePortInput, portDetails, requireProjectPath, validationSuccessMessage } from '../ports.js';
+import { classifyPort, detectedContainers, detectedProjects, detectedProjectLabel, filterPorts, localizeApiError, ownershipLabel, parsePortInput, portDetails, requireProjectPath, validationSuccessMessage } from '../ports.js';
 
 test('classifies listening ports without a project as unregistered', () => {
   assert.equal(classifyPort({ port: 5173, status: 'listening', project: null }), 'unregistered');
@@ -121,4 +121,120 @@ test('port details include listener address, family, process path, and assigned 
   assert.deepEqual(details.listeners[0], {
     address: '127.0.0.1:8300', family: 'IPv4', pid: 412, process: 'python', path: '/work/orders',
   });
+});
+
+test('Docker 探测项目名优先显示 Compose 项目名', () => {
+  const port = {
+    project: null,
+    containers: [{ name: 'dns-frontend-1', project: 'dns', service: 'frontend', source: 'docker' }],
+  };
+
+  assert.equal(detectedProjectLabel(port), 'dns');
+});
+
+test('没有 Compose 项目时用容器名识别探测来源', () => {
+  const port = {
+    project: null,
+    container: { name: 'legacy-api', project: null, service: null, source: 'docker' },
+  };
+
+  assert.equal(detectedProjectLabel(port), 'legacy-api');
+});
+
+test('Docker 探测的多个归属不合并成单一项目', () => {
+  const port = {
+    containers: [
+      { name: 'frontend-1', project: 'shop', service: 'frontend' },
+      { name: 'api-1', project: 'shop', service: 'api' },
+      { name: 'other-1', project: 'other', service: 'web' },
+    ],
+  };
+
+  assert.equal(detectedProjectLabel(port), 'shop、other');
+  assert.equal(detectedContainers(port).length, 3);
+});
+
+test('搜索可以匹配探测到的容器名和 Compose 服务名', () => {
+  const ports = [{
+    port: 8088,
+    status: 'conflict',
+    project: null,
+    containers: [{ name: 'dns-frontend-1', project: 'dns', service: 'frontend' }],
+  }];
+
+  assert.equal(filterPorts(ports, 'all', 'frontend').length, 1);
+  assert.equal(filterPorts(ports, 'all', 'dns-frontend-1').length, 1);
+});
+
+test('端口详情包含容器名称、Compose 服务和工作目录', () => {
+  const details = portDetails({
+    port: 8088,
+    project: null,
+    containers: [{
+      name: 'dns-frontend-1', project: 'dns', service: 'frontend',
+      working_dir: '/Users/me/DNS', source: 'docker',
+    }],
+  });
+
+  assert.deepEqual(details.containers[0], {
+    name: 'dns-frontend-1', project: 'dns', service: 'frontend',
+    workingDir: '/Users/me/DNS',
+  });
+});
+
+test('未登记监听的进程目录不显示成登记目录', () => {
+  const details = portDetails({ port: 8088, project: null, path: '/' });
+  assert.equal(details.registeredPath, '未绑定');
+});
+
+test('IPv4 与 IPv6 的相同容器探测去重并兼容监听级元数据', () => {
+  const container = { name: 'dns-frontend-1', project: 'dns', service: 'frontend' };
+  assert.equal(detectedContainers({ listeners: [
+    { family: 'IPv4', container },
+    { family: 'IPv6', container: { ...container } },
+  ] }).length, 1);
+});
+
+test('原生 Git 项目探测名称进入项目标签和详情', () => {
+  const port = {
+    project: null,
+    status: 'conflict',
+    detected_project: { name: 'cc-switch', path: '/Users/me/cc-switch', source: 'git' },
+  };
+
+  assert.equal(detectedProjectLabel(port), 'cc-switch');
+  assert.equal(classifyPort(port), 'unregistered');
+  assert.equal(portDetails(port).owner, '未分配');
+  assert.deepEqual(portDetails(port).detectedProjects, [{
+    name: 'cc-switch', path: '/Users/me/cc-switch', source: 'Git 仓库',
+    service: '', containerName: '',
+  }]);
+});
+
+test('原生多项目探测与 Docker 归属分别保留且标签去重', () => {
+  const port = {
+    detected_project: { name: 'cc-switch', path: '/work/cc-switch', source: 'git' },
+    detected_projects: [
+      { name: 'cc-switch', path: '/work/cc-switch', source: 'git' },
+      { name: 'api-service', path: '/work/api', source: 'package.json' },
+    ],
+    containers: [{
+      name: 'dns-frontend-1', project: 'dns', service: 'frontend',
+      working_dir: '/work/dns', source: 'docker',
+    }],
+  };
+
+  assert.equal(detectedProjectLabel(port), 'cc-switch、api-service、dns');
+  assert.equal(detectedProjects(port).length, 3);
+});
+
+test('搜索可以匹配原生项目探测名称与目录', () => {
+  const ports = [{
+    port: 9999,
+    status: 'conflict',
+    detected_project: { name: 'cc-switch', path: '/Users/me/cc-switch', source: 'git' },
+  }];
+
+  assert.equal(filterPorts(ports, 'all', 'cc-switch').length, 1);
+  assert.equal(filterPorts(ports, 'all', '/Users/me/cc-switch').length, 1);
 });

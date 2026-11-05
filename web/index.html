@@ -58,7 +58,7 @@
                 <h2 id="ports-title">端口使用情况</h2>
                 <p id="ports-caption">正在读取本机监听与登记信息</p>
               </div>
-              <button class="icon-button" id="refresh" type="button" aria-label="刷新端口列表" title="刷新">
+              <button class="icon-button" id="refresh" type="button" aria-label="立即扫描端口" title="立即扫描">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5.6 9A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.4-3"/></svg>
               </button>
             </div>
@@ -93,7 +93,7 @@
                 <button class="button button-subtle" id="retry" type="button">重试</button>
               </div>
             </div>
-            <footer class="table-footer"><span id="row-count">0 个端口</span><span>监听状态每次刷新时采集</span></footer>
+            <footer class="table-footer"><span id="row-count">0 个端口</span><span id="scan-status" aria-live="polite">正在读取扫描状态</span></footer>
           </section>
 
           <aside class="side-panel" aria-labelledby="projects-title">
@@ -101,6 +101,7 @@
               <div><h2 id="projects-title">项目分配</h2><span class="side-count" id="project-count">0</span></div>
               <button class="text-button" id="side-register" type="button">添加</button>
             </div>
+            <p class="project-list-status" id="projects-status" aria-live="polite"></p>
             <div class="project-list" id="project-list"></div>
             <div class="rules">
               <h3>端口规则</h3>
@@ -111,7 +112,7 @@
           </aside>
         </div>
       </main>
-      <footer class="page-footer"><span>本地端口管理</span><span id="last-updated">尚未更新</span></footer>
+      <footer class="page-footer"><span>本地端口管理</span><span id="last-updated">尚未扫描</span></footer>
     </div>
 
     <dialog id="register-dialog" class="dialog">

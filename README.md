@@ -5,6 +5,8 @@
 ## 功能
 
 - 查看本机 TCP 监听端口、进程、PID、项目归属和登记状态。
+- 管理器在后台每 15 秒扫描一次；面板每 5 秒读取最新快照，也可立即触发扫描。
+- 只读识别 Docker 发布端口对应的 Compose 项目、服务和容器名；监听工作目录恰好是 Git 仓库根目录时，也显示项目目录名。
 - 为项目登记一个或多个专属端口；端口已被占用或已分配时拒绝登记。
 - 登记并绑定项目目录；检查监听进程是否归属对应项目。
 - 受管启动前检查端口登记和占用情况，并监测本次启动的进程组是否监听未登记端口；可按有限次数自动保活。
@@ -30,6 +32,8 @@ python3 server.py
 5. 如果首选端口被占用，为项目登记另一个空闲端口后再更新配置。
 
 面板用于本机登记、校验和审计。端口登记会在服务停止后继续保留。面板不会接管其他进程，也不会自动终止占用端口的服务。管理器的使用权校验只确认端口登记给哪个项目，不代表端口当前空闲；启动前应使用 `portctl.py check` 或受管 `run` 检查占用情况。
+
+Docker 名称和 Git 根目录名是监听扫描得到的发现线索，面板会标为“探测发现 · 待登记”，不会自动写入项目登记或改变端口所有权。Docker 仅按运行中容器的 TCP 发布端口匹配已知代理监听；原生进程仅当工作目录恰好等于 Git 仓库根目录时才显示目录名。容器元数据不可读、目录不匹配或扫描失败时，面板保留未分配/上次成功快照并显示扫描状态，不会猜测归属或停止进程。
 
 受管启动会将项目工作目录固定为登记目录，并监测本次启动的进程组。它不是操作系统级端口隔离：绕过管理器启动、脱离该进程组运行或在扫描间隔内短暂监听的程序，不能保证被受管启动拦截；面板会报告扫描时观察到的未登记监听。已有监听只有在其工作目录与登记目录相同，或位于登记目录下且 Git 仓库根目录恰好等于登记目录时，才可能被认作该项目。文件系统根目录和用户主目录不能用于认领监听。
 
@@ -57,7 +61,7 @@ python3 portctl.py run --project <项目编号> --ports 8300 --keepalive -- pyth
 
 ```sh
 python3 -m unittest discover -v
-node --test web/tests/ports.test.mjs
+node --test web/tests/*.test.mjs
 ```
 
 ## 本地端口管理技能
@@ -74,7 +78,8 @@ cp skills/local-port-management/SKILL.md "$HOME/.codex/skills/local-port-managem
 ## API
 
 - `GET /api/health`
-- `GET /api/ports`
+- `GET /api/ports`，返回最近监听快照及 `scan.interval_seconds`、`scan.scanned_at`、`scan.next_scan_at`、`scan.scanning`、`scan.error`
+- `POST /api/scan`，立即触发扫描并返回最新快照
 - `GET /api/projects`
 - `POST /api/projects`，JSON：`{"name":"web","ports":[5173],"path":"/项目目录"}`
 - `POST /api/projects/{id}/validate`，JSON：`{"port":5173}`

@@ -4,6 +4,8 @@ import json
 import mimetypes
 import os
 import sys
+import threading
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -19,12 +21,84 @@ class PortManagerServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def server_close(self):
+        monitor = getattr(self, "scan_monitor", None)
+        if monitor is not None:
+            monitor.stop()
+        super().server_close()
 
-def create_server(registry=None, host="127.0.0.1", port=None, static_dir=None, register_system=True):
+
+class PortScanMonitor:
+    """定时采集监听快照，并串行处理手动扫描请求。"""
+
+    def __init__(self, registry, interval_seconds=15):
+        self.registry = registry
+        self.interval_seconds = max(0.01, float(interval_seconds))
+        self._state_lock = threading.Lock()
+        self._scan_lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._report = {"ports": [], "summary": {"registered": 0, "listening": 0, "conflicts": 0}}
+        self._scanned_at = None
+        self._next_scan_at = None
+        self._error = None
+        self._scanning = False
+        self._thread = None
+
+    def scan(self):
+        with self._scan_lock:
+            with self._state_lock:
+                self._error = None
+                self._scanning = True
+            try:
+                report = build_port_report(self.registry)
+            except Exception as exc:
+                with self._state_lock:
+                    self._next_scan_at = datetime.now().astimezone() + timedelta(seconds=self.interval_seconds)
+                    self._error = str(exc) or "无法读取本机监听端口"
+                    self._scanning = False
+            else:
+                with self._state_lock:
+                    self._report = report
+                    self._scanned_at = datetime.now().astimezone()
+                    self._next_scan_at = self._scanned_at + timedelta(seconds=self.interval_seconds)
+                    self._error = None
+                    self._scanning = False
+            return self.snapshot()
+
+    def snapshot(self):
+        with self._state_lock:
+            return {
+                **self._report,
+                "scan": {
+                    "interval_seconds": self.interval_seconds,
+                    "scanned_at": self._scanned_at.isoformat(timespec="seconds") if self._scanned_at else None,
+                    "next_scan_at": self._next_scan_at.isoformat(timespec="seconds") if self._next_scan_at else None,
+                    "scanning": self._scanning,
+                    "error": self._error,
+                },
+            }
+
+    def _run(self):
+        while not self._stop_event.wait(self.interval_seconds):
+            self.scan()
+
+    def start(self):
+        self.scan()
+        self._thread = threading.Thread(target=self._run, name="port-scan-monitor", daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop_event.set()
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join(timeout=2)
+
+
+def create_server(registry=None, host="127.0.0.1", port=None, static_dir=None, register_system=True, scan_interval_seconds=15):
     if host != "127.0.0.1":
         raise ValueError("服务只能绑定 127.0.0.1")
     registry = registry or PortRegistry()
     web_root = Path(static_dir) if static_dir else Path(__file__).parent / "web"
+    monitor = PortScanMonitor(registry, scan_interval_seconds)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "LocalPortManager/1.0"
@@ -83,10 +157,7 @@ def create_server(registry=None, host="127.0.0.1", port=None, static_dir=None, r
                 except Exception as exc:
                     return self._json(503, {"error": str(exc)})
             if parsed.path == "/api/ports":
-                try:
-                    return self._json(200, build_port_report(registry))
-                except Exception as exc:
-                    return self._json(503, {"error": str(exc)})
+                return self._json(200, monitor.snapshot())
             return self._static(parsed.path)
 
         def do_POST(self):
@@ -94,6 +165,8 @@ def create_server(registry=None, host="127.0.0.1", port=None, static_dir=None, r
             try:
                 if not self._check_local_origin():
                     return self._json(403, {"error": "不允许跨来源请求"})
+                if parsed.path == "/api/scan":
+                    return self._json(200, monitor.scan())
                 payload = self._body()
                 if not isinstance(payload, dict):
                     raise ValueError("请求内容必须是 JSON 对象")
@@ -101,6 +174,7 @@ def create_server(registry=None, host="127.0.0.1", port=None, static_dir=None, r
                     if not payload.get("path"):
                         raise ValueError("新项目登记必须提供项目目录")
                     project = registry.register(payload.get("name"), payload.get("ports"), path=payload.get("path"))
+                    monitor.scan()
                     return self._json(201, project)
                 pieces = [unquote(piece) for piece in parsed.path.strip("/").split("/")]
                 if len(pieces) == 4 and pieces[0:2] == ["api", "projects"] and pieces[3] == "validate":
@@ -124,6 +198,7 @@ def create_server(registry=None, host="127.0.0.1", port=None, static_dir=None, r
                 try:
                     if not registry.delete_project(pieces[2]):
                         return self._json(404, {"error": "项目不存在"})
+                    monitor.scan()
                     return self._json(200, {"deleted": True})
                 except PermissionError as exc:
                     return self._json(403, {"error": str(exc)})
@@ -185,6 +260,8 @@ def create_server(registry=None, host="127.0.0.1", port=None, static_dir=None, r
                 except Exception:
                     server.server_close()
                     raise
+            server.scan_monitor = monitor
+            monitor.start()
             return server
     raise OSError("无法在本机回环地址绑定可用端口") from last_error
 

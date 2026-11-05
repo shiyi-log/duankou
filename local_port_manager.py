@@ -12,6 +12,9 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from container_discovery import enrich_listeners_with_containers
+from project_discovery import enrich_listeners_with_projects
+
 
 class PortConflictError(ValueError):
     """端口无法分配给目标项目时抛出。"""
@@ -81,7 +84,8 @@ def scan_listening_ports():
             listener["path"] = process_paths[pid]
         listener["address"] = re.sub(r"\s+\(LISTEN\)$", "", listener["address"])
         listeners[(port, pid, columns[0], listener["family"], listener["address"])] = listener
-    return sorted(listeners.values(), key=lambda item: (item["port"], item["pid"] or 0))
+    ordered = sorted(listeners.values(), key=lambda item: (item["port"], item["pid"] or 0))
+    return enrich_listeners_with_projects(enrich_listeners_with_containers(ordered))
 
 
 def _listener_matches_project(listener_path, project_path):
@@ -322,6 +326,53 @@ def build_port_report(registry, listeners=None):
         for project in projects
         for port in project["ports"]
     }
+
+    def merge_container_details(row, listener):
+        """聚合探测结果，但不改变项目登记和冲突判定字段。"""
+        detected = listener.get("containers")
+        if not isinstance(detected, list):
+            detected = []
+        single = listener.get("container")
+        if isinstance(single, dict) and not detected:
+            detected = [single]
+        for container in detected:
+            if not isinstance(container, dict):
+                continue
+            display = {
+                key: container.get(key)
+                for key in ("name", "project", "service", "working_dir", "source")
+            }
+            identity = (display["name"], display["project"], display["service"])
+            if all(
+                (item.get("name"), item.get("project"), item.get("service")) != identity
+                for item in row["containers"]
+            ):
+                row["containers"].append(display)
+        row["container"] = row["containers"][0] if len(row["containers"]) == 1 else None
+
+    def merge_project_details(row, listener):
+        """仅为未登记端口聚合 Git 提示，不重复覆盖登记项目名称。"""
+        if row.get("project") is not None:
+            for item in row["listeners"]:
+                item.pop("detected_project", None)
+            return
+        detected = listener.get("detected_project")
+        if not isinstance(detected, dict):
+            return
+        display = {
+            key: detected.get(key)
+            for key in ("name", "path", "source")
+        }
+        identity = (display["name"], display["path"], display["source"])
+        if all(
+            (item.get("name"), item.get("path"), item.get("source")) != identity
+            for item in row["detected_projects"]
+        ):
+            row["detected_projects"].append(display)
+        row["detected_project"] = (
+            row["detected_projects"][0] if len(row["detected_projects"]) == 1 else None
+        )
+
     rows = {}
     for project in projects:
         for port in project["ports"]:
@@ -338,6 +389,10 @@ def build_port_report(registry, listeners=None):
                 "family": None,
                 "address": None,
                 "listeners": [],
+                "container": None,
+                "containers": [],
+                "detected_project": None,
+                "detected_projects": [],
             }
     for listener in listeners:
         port = listener["port"]
@@ -356,6 +411,10 @@ def build_port_report(registry, listeners=None):
                 "family": listener.get("family"),
                 "address": listener.get("address"),
                 "listeners": [dict(listener)],
+                "container": None,
+                "containers": [],
+                "detected_project": None,
+                "detected_projects": [],
             }
             rows[port] = row
         else:
@@ -367,21 +426,23 @@ def build_port_report(registry, listeners=None):
                 family=listener.get("family"),
                 address=listener.get("address"),
             )
-            if port not in project_by_port:
-                continue
-            project_path = project_by_port[port].get("path")
-            listener_path = listener.get("path")
-            if project_path:
-                if not listener_path:
-                    row.update(status="conflict", ownership="unverified")
-                    continue
-                if _listener_matches_project(listener_path, project_path):
-                    if row["status"] != "conflict":
-                        row.update(status="listening", ownership="verified")
-                else:
-                    row.update(status="conflict", ownership="mismatch")
-            else:
+        merge_container_details(row, listener)
+        merge_project_details(row, listener)
+        if port not in project_by_port:
+            continue
+        project_path = project_by_port[port].get("path")
+        listener_path = listener.get("path")
+        if project_path:
+            if not listener_path:
                 row.update(status="conflict", ownership="unverified")
+                continue
+            if _listener_matches_project(listener_path, project_path):
+                if row["status"] != "conflict":
+                    row.update(status="listening", ownership="verified")
+            else:
+                row.update(status="conflict", ownership="mismatch")
+        else:
+            row.update(status="conflict", ownership="unverified")
     port_rows = [rows[port] for port in sorted(rows)]
     return {
         "ports": port_rows,

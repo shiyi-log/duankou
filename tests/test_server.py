@@ -2,6 +2,7 @@ import json
 import socket
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from urllib.error import HTTPError
@@ -44,6 +45,12 @@ class PortManagerApiTests(unittest.TestCase):
         self.assertEqual(project["ports"], [62001])
         _, projects = self.request_json("/api/projects")
         self.assertEqual(projects["projects"][0]["id"], project["id"])
+        _, report = self.request_json("/api/ports")
+        self.assertEqual(report["ports"][0]["project"], "Web App")
+
+        self.request_json("/api/projects/{}".format(project["id"]), "DELETE")
+        _, report = self.request_json("/api/ports")
+        self.assertEqual(report["ports"], [])
 
     def test_unassigned_project_port_is_rejected_with_forbidden(self):
         _, project = self.request_json("/api/projects", "POST", {"name": "API", "ports": [62002], "path": self.temp_dir.name})
@@ -104,6 +111,40 @@ class PortManagerApiTests(unittest.TestCase):
             urlopen(request, timeout=3)
 
         self.assertEqual(raised.exception.code, 403)
+
+    def test_ports_endpoint_exposes_scan_metadata_and_manual_scan(self):
+        status, report = self.request_json("/api/ports")
+
+        self.assertEqual(status, 200)
+        self.assertIn("scan", report)
+        self.assertGreaterEqual(report["scan"]["interval_seconds"], 1)
+        self.assertTrue(report["scan"]["scanned_at"])
+
+        status, manual = self.request_json("/api/scan", "POST", {})
+
+        self.assertEqual(status, 200)
+        self.assertTrue(manual["scan"]["scanned_at"])
+        self.assertFalse(manual["scan"]["scanning"])
+
+    def test_server_scans_listeners_in_the_background(self):
+        calls = []
+        registry = PortRegistry(
+            Path(self.temp_dir.name) / "background.json",
+            listener_provider=lambda: calls.append(time.monotonic()) or [],
+        )
+        server = create_server(
+            registry,
+            static_dir=Path(self.temp_dir.name),
+            register_system=False,
+            scan_interval_seconds=0.05,
+        )
+        try:
+            deadline = time.monotonic() + 1
+            while len(calls) < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertGreaterEqual(len(calls), 2)
+        finally:
+            server.server_close()
 
     def test_server_reuses_its_registered_port_after_restart(self):
         registry = PortRegistry(Path(self.temp_dir.name) / "stable.json", listener_provider=lambda: [])

@@ -11,6 +11,54 @@ export function classifyPort(port) {
   return 'available';
 }
 
+export function detectedContainers(port) {
+  let containers = Array.isArray(port.containers) ? port.containers : [];
+  if (containers.length === 0 && port.container) containers = [port.container];
+  if (containers.length === 0) {
+    containers = (port.listeners || []).map((listener) => listener.container).filter(Boolean);
+  }
+
+  const unique = new Map();
+  for (const container of containers) {
+    if (!container || typeof container !== 'object') continue;
+    const key = [container.name, container.project, container.service, container.working_dir].join('|');
+    unique.set(key, container);
+  }
+  return [...unique.values()];
+}
+
+export function detectedProjects(port) {
+  let projects = Array.isArray(port.detected_projects) ? port.detected_projects : [];
+  if (projects.length === 0 && port.detected_project) projects = [port.detected_project];
+  if (projects.length === 0) {
+    projects = (port.listeners || []).map((listener) => listener.detected_project).filter(Boolean);
+  }
+  const hints = projects
+    .filter((project) => project && typeof project === 'object' && project.name)
+    .map((project) => ({
+      name: project.name, path: project.path || '', source: project.source || '',
+      service: '', containerName: '',
+    }));
+  for (const container of detectedContainers(port)) {
+    const name = container.project || container.name || container.service;
+    if (name) hints.push({
+      name, path: container.working_dir || '', source: 'docker',
+      service: container.service || '', containerName: container.name || '',
+    });
+  }
+  const unique = new Map();
+  for (const hint of hints) {
+    const key = [hint.name, hint.path, hint.source, hint.service, hint.containerName].join('|');
+    unique.set(key, hint);
+  }
+  return [...unique.values()];
+}
+
+export function detectedProjectLabel(port) {
+  const labels = [...new Set(detectedProjects(port).map((project) => project.name))];
+  return labels.join('、');
+}
+
 export function filterPorts(ports, filter = 'all', query = '') {
   const normalizedQuery = query.trim().toLowerCase();
   return ports
@@ -20,7 +68,10 @@ export function filterPorts(ports, filter = 'all', query = '') {
       if (filter === 'registered' && state !== 'reserved' && state !== 'active' && state !== 'mismatch' && state !== 'unverified') return false;
       if (filter === 'attention' && state !== 'unregistered' && state !== 'mismatch' && state !== 'unverified') return false;
       if (!normalizedQuery) return true;
-      return [port.port, port.protocol, port.project, port.process, port.pid]
+      const projectValues = detectedProjects(port).flatMap((project) => [
+        project.name, project.path, project.service, project.containerName,
+      ]);
+      return [port.port, port.protocol, port.project, port.process, port.pid, ...projectValues]
         .some((value) => String(value ?? '').toLowerCase().includes(normalizedQuery));
     })
     .sort((a, b) => Number(a.port) - Number(b.port));
@@ -65,7 +116,21 @@ export function portDetails(port, project = null) {
     protocol: port.protocol || 'tcp',
     owner: port.project || '未分配',
     ownership: ownershipLabel(port.ownership),
-    registeredPath: project?.path || port.path || '未绑定',
+    registeredPath: project?.path || (port.project ? port.path : null) || '未绑定',
+    detectedProjects: detectedProjects(port).filter((hint) => hint.source !== 'docker').map((hint) => ({
+      ...hint,
+      path: hint.path || '无法读取',
+      source: {
+        git: 'Git 仓库', manifest: '项目清单', 'registered-path': '登记目录匹配',
+        'package.json': '项目清单', 'pyproject.toml': '项目清单',
+      }[hint.source] || hint.source || '本机探测',
+    })),
+    containers: detectedContainers(port).map((container) => ({
+      name: container.name || '未知',
+      project: container.project || '未标记',
+      service: container.service || '未标记',
+      workingDir: container.working_dir || '无法读取',
+    })),
     listeners: (port.listeners || []).map((listener) => ({
       address: listener.address || '未知',
       family: listener.family || '未知',
