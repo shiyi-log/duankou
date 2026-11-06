@@ -2,6 +2,10 @@
 
 本机使用的端口登记与监听状态面板。项目端口归属保存在用户目录中，服务停止后仍保留；未登记但正在监听的端口会标为冲突，不能分配给其他项目。
 
+当前正式版本：`v1.0.0`。发布包和校验值见 [GitHub Releases](https://github.com/shiyi-log/duankou/releases)。
+
+[![CI](https://github.com/shiyi-log/duankou/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shiyi-log/duankou/actions/workflows/ci.yml)
+
 ## 功能
 
 - 查看本机 TCP 监听端口、进程、PID、项目归属和登记状态。
@@ -63,6 +67,10 @@ python3 portctl.py run --project <项目编号> --ports 8300 --keepalive -- pyth
 python3 -m unittest discover -v
 node --test web/tests/*.test.mjs
 ```
+
+## 发布
+
+提交到 `main` 和 Pull Request 会自动运行 Python 3.9 与最新稳定版 Python 测试，以及前端测试。正式版本使用 `v主版本.次版本.修订版本` 标签；推送标签后，发布工作流会再次运行全量测试，核对标签与 `VERSION` 一致，再创建 GitHub Release，附上源码 ZIP 和 SHA-256 校验文件。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 本地端口管理技能
 

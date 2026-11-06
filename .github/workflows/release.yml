@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: 发布前全量测试
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  publish:
+    name: 打包并发布
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: 检出标签对应代码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 核对版本标签
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="$(tr -d '\n' < VERSION)"
+          expected_tag="v${version}"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "标签 $RELEASE_TAG 与 VERSION 中的 $expected_tag 不一致" >&2
+            exit 1
+          fi
+
+      - name: 构建源码包和校验值
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          archive="dist/duankou-${RELEASE_TAG}-source.zip"
+          git archive --format=zip --prefix="duankou-${RELEASE_TAG}/" "$GITHUB_SHA" -o "$archive"
+          sha256sum "$archive" > "${archive}.sha256"
+
+      - name: 创建 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            "dist/duankou-${RELEASE_TAG}-source.zip" \
+            "dist/duankou-${RELEASE_TAG}-source.zip.sha256" \
+            --title "本地端口管理器 ${RELEASE_TAG}" \
+            --notes-file CHANGELOG.md \
+            --verify-tag
