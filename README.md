@@ -2,7 +2,7 @@
 
 本机使用的端口登记与监听状态面板。项目端口归属保存在用户目录中，服务停止后仍保留；未登记但正在监听的端口会标为冲突，不能分配给其他项目。
 
-当前正式版本：`v1.0.0`。发布包和校验值见 [GitHub Releases](https://github.com/shiyi-log/duankou/releases)。
+当前正式版本：`v1.0.1`。发布包和校验值见 [GitHub Releases](https://github.com/shiyi-log/duankou/releases)。
 
 [![CI](https://github.com/shiyi-log/duankou/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shiyi-log/duankou/actions/workflows/ci.yml)
 

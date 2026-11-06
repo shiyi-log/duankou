@@ -44,7 +44,10 @@ jobs:
           mkdir -p dist
           archive="dist/duankou-${RELEASE_TAG}-source.zip"
           git archive --format=zip --prefix="duankou-${RELEASE_TAG}/" "$GITHUB_SHA" -o "$archive"
-          sha256sum "$archive" > "${archive}.sha256"
+          (
+            cd dist
+            sha256sum "duankou-${RELEASE_TAG}-source.zip" > "duankou-${RELEASE_TAG}-source.zip.sha256"
+          )
 
       - name: 创建 GitHub Release
         env:
